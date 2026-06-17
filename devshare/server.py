@@ -19,7 +19,7 @@ def run_server(host: str, port: int, root_dir: str, theme: str, title: str):
     DevServeHandler.version = __version__
 
     httpd = DevHTTPServer((host, port), DevServeHandler)
-    print(f"DevServe running on http://{host}:{port}")
+    print(f"DevShare running on http://{host}:{port}")
     print(f"Serving: {DevServeHandler.root_dir}")
     print("Press Ctrl+C to stop")
     try:

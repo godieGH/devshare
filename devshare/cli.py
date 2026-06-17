@@ -8,7 +8,7 @@ from .server import run_server
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="devserve",
+        prog="devshare",
         description="Cross-platform local file server with browser UI",
     )
     parser.add_argument("--host", default="0.0.0.0", help="Bind address")
