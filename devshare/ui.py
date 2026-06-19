@@ -33,13 +33,433 @@ THEMES = {
 }
 
 
-def render_page(title: str, version: str, theme: str, current_path: str) -> str:
+def _theme_vars(theme: str) -> dict:
+    return THEMES.get(theme, THEMES["dark"])
+
+
+def _base_css(t: dict) -> str:
+    return f"""
+    :root {{
+      --bg: {t["bg"]};
+      --panel: {t["panel"]};
+      --panel2: {t["panel_2"]};
+      --panel-alt: {t["panel_alt"]};
+      --text: {t["text"]};
+      --muted: {t["muted"]};
+      --border: {t["border"]};
+      --accent: {t["accent"]};
+      --accent2: {t["accent_2"]};
+      --danger: {t["danger"]};
+      --shadow: {t["shadow"]};
+      --radius: 18px;
+    }}
+
+    * {{ box-sizing: border-box; }}
+
+    html, body {{
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }}
+
+    button, .btn {{
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text);
+      padding: 10px 12px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 650;
+    }}
+
+    button:hover, .btn:hover {{ filter: brightness(1.04); }}
+
+    .primary {{
+      background: var(--accent);
+      color: white;
+      border-color: transparent;
+    }}
+
+    .danger {{
+      background: var(--danger);
+      color: white;
+      border-color: transparent;
+    }}
+    """
+
+
+def render_login_page(title: str, theme: str) -> str:
+    t = _theme_vars(theme)
+    title_js = json.dumps(title)
+    theme_js = json.dumps(theme)
+    themes_js = json.dumps(THEMES)
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title} — Login</title>
+  <style>
+    {_base_css(t)}
+
+    body {{
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }}
+
+    .card {{
+      width: min(420px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 28px;
+    }}
+
+    h1 {{
+      margin: 0 0 8px;
+      font-size: 22px;
+    }}
+
+    p {{
+      margin: 0 0 20px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }}
+
+    input {{
+      width: 100%;
+      border: 1px solid var(--border);
+      background: var(--panel2);
+      color: var(--text);
+      padding: 14px 16px;
+      border-radius: 14px;
+      font-size: 24px;
+      letter-spacing: 0.35em;
+      text-align: center;
+      outline: none;
+    }}
+
+    input:focus {{
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
+    }}
+
+    .actions {{
+      margin-top: 16px;
+      display: grid;
+      gap: 10px;
+    }}
+
+    .error {{
+      margin-top: 12px;
+      color: var(--danger);
+      font-size: 13px;
+      min-height: 18px;
+    }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>{title}</h1>
+    <p>Enter the host PIN shown in the terminal to manage shared files on this device.</p>
+    <input id="pinInput" type="password" inputmode="numeric" maxlength="12" autocomplete="one-time-code" placeholder="••••••">
+    <div class="actions">
+      <button id="loginBtn" class="primary">Unlock host access</button>
+    </div>
+    <div id="error" class="error"></div>
+  </div>
+  <script>
+    const THEMES = {themes_js};
+    const themeName = {theme_js};
+    const theme = THEMES[themeName] || THEMES.dark;
+    for (const [k, v] of Object.entries(theme)) {{
+      document.documentElement.style.setProperty("--" + k.replaceAll("_", "-"), v);
+    }}
+
+    const pinInput = document.getElementById("pinInput");
+    const errorEl = document.getElementById("error");
+
+    async function login() {{
+      errorEl.textContent = "";
+      const res = await fetch("/api/login", {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{ pin: pinInput.value.trim() }})
+      }});
+      const data = await res.json();
+      if (!res.ok) {{
+        errorEl.textContent = data.error || "Login failed";
+        return;
+      }}
+      window.location.href = "/";
+    }}
+
+    document.getElementById("loginBtn").onclick = login;
+    pinInput.addEventListener("keydown", (e) => {{
+      if (e.key === "Enter") login();
+    }});
+    pinInput.focus();
+  </script>
+</body>
+</html>
+"""
+
+
+def render_share_page(
+    title: str,
+    theme: str,
+    token: str,
+    name: str,
+    is_file: bool,
+    allow_upload: bool,
+) -> str:
+    t = _theme_vars(theme)
+    title_js = json.dumps(title)
+    theme_js = json.dumps(theme)
+    token_js = json.dumps(token)
+    name_js = json.dumps(name)
+    themes_js = json.dumps(THEMES)
+
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{title} — Shared</title>
+  <style>
+    {_base_css(t)}
+
+    body {{
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }}
+
+    .topbar {{
+      border-bottom: 1px solid var(--border);
+      background: var(--panel);
+      padding: 16px;
+    }}
+
+    .wrap {{
+      max-width: 900px;
+      width: 100%;
+      margin: 0 auto;
+      padding: 16px;
+      flex: 1;
+    }}
+
+    h1 {{
+      margin: 0;
+      font-size: 20px;
+    }}
+
+    .subtle {{
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }}
+
+    .dropzone {{
+      border: 1.5px dashed color-mix(in srgb, var(--accent) 45%, var(--border));
+      border-radius: 16px;
+      padding: 16px;
+      text-align: center;
+      color: var(--muted);
+      margin: 16px 0;
+      cursor: pointer;
+    }}
+
+    .list {{
+      display: grid;
+      gap: 10px;
+    }}
+
+    .item {{
+      display: grid;
+      grid-template-columns: 44px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel-alt);
+      cursor: pointer;
+    }}
+
+    .empty {{
+      color: var(--muted);
+      text-align: center;
+      padding: 24px;
+    }}
+
+    .status {{
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+    }}
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <div class="wrap" style="padding-top:0;padding-bottom:0">
+      <h1>Shared: {name}</h1>
+      <div class="subtle">Secure guest access — download{" and upload" if allow_upload else ""} only within this share.</div>
+    </div>
+  </div>
+  <div class="wrap">
+    {"<div id='dropzone' class='dropzone'>Drop files here to upload into this shared folder</div>" if allow_upload else ""}
+    <div id="list" class="list"></div>
+    <div id="status" class="status">Loading...</div>
+  </div>
+  <input id="fileInput" type="file" multiple hidden>
+  <script>
+    const SHARE = {{
+      token: {token_js},
+      name: {name_js},
+      isFile: {"true" if is_file else "false"},
+      allowUpload: {"true" if allow_upload else "false"}
+    }};
+    const THEMES = {themes_js};
+    const theme = THEMES[{theme_js}] || THEMES.dark;
+    for (const [k, v] of Object.entries(theme)) {{
+      document.documentElement.style.setProperty("--" + k.replaceAll("_", "-"), v);
+    }}
+
+    const listEl = document.getElementById("list");
+    const statusEl = document.getElementById("status");
+    const fileInputEl = document.getElementById("fileInput");
+    const dropzoneEl = document.getElementById("dropzone");
+    let currentPath = "";
+
+    function esc(s) {{
+      return String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    }}
+
+    function apiUrl(path, params) {{
+      const u = new URL(path, window.location.origin);
+      if (params) {{
+        for (const [k, v] of Object.entries(params)) {{
+          if (v !== null && v !== undefined && v !== "") u.searchParams.set(k, v);
+        }}
+      }}
+      return u.toString();
+    }}
+
+    function downloadItem(item) {{
+      const url = apiUrl("/api/guest/file", {{ path: item.path, download: "1" }});
+      window.open(url, "_blank");
+    }}
+
+    function renderItems(items) {{
+      if (!items.length) {{
+        listEl.innerHTML = '<div class="empty">Nothing here yet.</div>';
+        return;
+      }}
+      listEl.innerHTML = items.map(item => {{
+        const icon = item.type === "dir" ? "📁" : "📄";
+        return (
+          '<div class="item" data-path="' + esc(item.path) + '" data-type="' + esc(item.type) + '">' +
+            '<div>' + icon + '</div>' +
+            '<div><strong>' + esc(item.name) + '</strong><br><span style="color:var(--muted);font-size:12px">' + esc(item.size_h || "") + '</span></div>' +
+            '<button type="button">' + (item.type === "dir" ? "Open" : "Download") + '</button>' +
+          '</div>'
+        );
+      }}).join("");
+
+      listEl.querySelectorAll(".item").forEach(el => {{
+        const path = el.getAttribute("data-path");
+        const type = el.getAttribute("data-type");
+        el.querySelector("button").addEventListener("click", (e) => {{
+          e.stopPropagation();
+          if (type === "dir") {{
+            currentPath = path;
+            loadList();
+          }} else {{
+            downloadItem({{ path }});
+          }}
+        }});
+        el.addEventListener("dblclick", () => {{
+          if (type === "dir") {{
+            currentPath = path;
+            loadList();
+          }} else {{
+            downloadItem({{ path }});
+          }}
+        }});
+      }});
+    }}
+
+    async function loadList() {{
+      statusEl.textContent = "Loading...";
+      const res = await fetch(apiUrl("/api/guest/list", {{ path: currentPath }}));
+      const data = await res.json();
+      if (!res.ok) {{
+        listEl.innerHTML = '<div class="empty">' + esc(data.error || "Failed to load") + '</div>';
+        statusEl.textContent = "Error";
+        return;
+      }}
+      renderItems(data.items || []);
+      statusEl.textContent = (data.items || []).length + " item(s)";
+    }}
+
+    async function uploadFiles(files) {{
+      if (!files || !files.length || !SHARE.allowUpload) return;
+      const form = new FormData();
+      for (const file of files) form.append("files", file, file.name);
+      statusEl.textContent = "Uploading...";
+      const res = await fetch(apiUrl("/api/guest/upload", {{ path: currentPath }}), {{
+        method: "POST",
+        body: form
+      }});
+      const data = await res.json();
+      if (!res.ok) {{
+        alert(data.error || "Upload failed");
+        statusEl.textContent = "Upload failed";
+        return;
+      }}
+      statusEl.textContent = "Upload complete";
+      loadList();
+    }}
+
+    if (dropzoneEl) {{
+      dropzoneEl.addEventListener("click", () => fileInputEl.click());
+      dropzoneEl.addEventListener("dragover", (e) => {{ e.preventDefault(); }});
+      dropzoneEl.addEventListener("drop", (e) => {{
+        e.preventDefault();
+        uploadFiles(e.dataTransfer.files);
+      }});
+      fileInputEl.addEventListener("change", () => uploadFiles(fileInputEl.files));
+    }}
+
+    loadList();
+  </script>
+</body>
+</html>
+"""
+
+
+def render_page(title: str, version: str, theme: str, current_path: str, auth_enabled: bool = False) -> str:
     t = THEMES.get(theme, THEMES["dark"])
     title_js = json.dumps(title)
     version_js = json.dumps(version)
     theme_js = json.dumps(theme)
     themes_js = json.dumps(THEMES)
     path_js = json.dumps(current_path or "")
+    auth_enabled_js = json.dumps(auth_enabled)
 
     return f"""<!doctype html>
 <html lang="en">
@@ -398,6 +818,21 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
       color: var(--muted);
     }}
 
+    .lan-panel {{
+      font-size: 13px;
+      color: var(--muted);
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--panel2);
+      word-break: break-all;
+    }}
+
+    .lan-panel strong {{
+      color: var(--text);
+      margin-right: 8px;
+    }}
+
     @media (max-width: 980px) {{
       main {{
         grid-template-columns: 1fr;
@@ -417,6 +852,7 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
           </div>
         </div>
         <div class="toolbar">
+          <button id="shareBtn" class="primary">Share</button>
           <button id="upBtn">Up</button>
           <button id="refreshBtn">Refresh</button>
           <button id="newFolderBtn">New folder</button>
@@ -425,7 +861,12 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
           <button id="downloadBtn">Download</button>
           <button id="zipBtn">Zip</button>
           <button id="themeBtn">Theme</button>
+          {"<button id='logoutBtn'>Logout</button>" if auth_enabled else ""}
         </div>
+      </div>
+      <div id="lanPanel" class="lan-panel" hidden>
+        <strong>Share on your network:</strong>
+        <span id="lanUrls"></span>
       </div>
       <input id="search" class="search" placeholder="Search files and folders...">
       <div class="status" id="status">Ready</div>
@@ -466,7 +907,8 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
       title: {title_js},
       version: {version_js},
       theme: {theme_js},
-      currentPath: {path_js}
+      currentPath: {path_js},
+      authEnabled: {auth_enabled_js}
     }};
 
     const THEMES = {themes_js};
@@ -520,6 +962,55 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#39;");
+    }}
+
+    async function fetchJson(url, options) {{
+      const res = await fetch(url, options);
+      const data = await res.json();
+      if (res.status === 401 && APP.authEnabled) {{
+        window.location.href = "/login";
+        throw new Error("Unauthorized");
+      }}
+      return {{ res, data }};
+    }}
+
+    async function loadInfo() {{
+      try {{
+        const {{ res, data }} = await fetchJson("/api/info");
+        if (!res.ok) return;
+        const panel = document.getElementById("lanPanel");
+        const urlsEl = document.getElementById("lanUrls");
+        if (panel && urlsEl && data.urls && data.urls.length) {{
+          urlsEl.textContent = data.urls.join("  ·  ");
+          panel.hidden = false;
+        }}
+      }} catch (err) {{
+        // ignore
+      }}
+    }}
+
+    async function shareSelected() {{
+      if (!state.selected) return alert("Select a file or folder to share");
+      const allowUpload = state.selected.type === "dir";
+      const {{ res, data }} = await fetchJson("/api/share", {{
+        method: "POST",
+        headers: {{ "Content-Type": "application/json" }},
+        body: JSON.stringify({{ path: state.selected.path, allow_upload: allowUpload }})
+      }});
+      if (!res.ok) return alert(data.error || "Share failed");
+
+      const msg = "Share link created (expires in 24h by default):\\n\\n" + data.url;
+      if (navigator.clipboard && navigator.clipboard.writeText) {{
+        await navigator.clipboard.writeText(data.url);
+        alert(msg + "\\n\\n(Copied to clipboard)");
+      }} else {{
+        prompt("Copy this share link:", data.url);
+      }}
+    }}
+
+    async function logout() {{
+      await fetch("/api/logout", {{ method: "POST" }});
+      window.location.href = "/login";
     }}
 
     function apiUrl(path, params) {{
@@ -588,6 +1079,15 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
       }};
 
       previewMiniEl.appendChild(download);
+
+      const shareBtn = document.createElement("button");
+      shareBtn.textContent = "Share link";
+      shareBtn.className = "primary";
+      shareBtn.onclick = async () => {{
+        state.selected = item;
+        await shareSelected();
+      }};
+      previewMiniEl.appendChild(shareBtn);
 
       if (item.type === "dir") {{
         const zip = document.createElement("button");
@@ -703,8 +1203,7 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
       renderBreadcrumb();
       setStatus("Loading folder...");
       const p = currentPath();
-      const res = await fetch(apiUrl("/api/list", {{ path: p }}));
-      const data = await res.json();
+      const {{ res, data }} = await fetchJson(apiUrl("/api/list", {{ path: p }}));
 
       if (!res.ok) {{
         listEl.innerHTML = '<div class="empty">' + esc(data.error || "Failed to load folder") + "</div>";
@@ -722,12 +1221,12 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
     }}
 
     async function postJson(url, body) {{
-      const res = await fetch(url, {{
+      const {{ res, data }} = await fetchJson(url, {{
         method: "POST",
         headers: {{ "Content-Type": "application/json" }},
         body: JSON.stringify(body)
       }});
-      return await res.json();
+      return data;
     }}
 
     async function deleteSelected() {{
@@ -758,11 +1257,10 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
       for (const file of files) form.append("files", file, file.name);
 
       setStatus("Uploading...");
-      const res = await fetch(apiUrl("/api/upload", {{ path: currentPath() }}), {{
+      const {{ res, data }} = await fetchJson(apiUrl("/api/upload", {{ path: currentPath() }}), {{
         method: "POST",
         body: form
       }});
-      const data = await res.json();
       if (!res.ok) {{
         alert(data.error || "Upload failed");
         setStatus("Upload failed");
@@ -793,6 +1291,7 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
       applyTheme(nextName);
     }}
 
+    document.getElementById("shareBtn").onclick = () => shareSelected();
     document.getElementById("upBtn").onclick = () => openPath(parentPath(currentPath()));
     document.getElementById("refreshBtn").onclick = () => loadList();
     document.getElementById("newFolderBtn").onclick = () => newFolder();
@@ -801,6 +1300,9 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
     document.getElementById("downloadBtn").onclick = () => downloadSelected();
     document.getElementById("zipBtn").onclick = () => zipSelected();
     document.getElementById("themeBtn").onclick = () => toggleTheme();
+    if (APP.authEnabled) {{
+      document.getElementById("logoutBtn").onclick = () => logout();
+    }}
     searchEl.addEventListener("input", renderList);
 
     fileInputEl.addEventListener("change", () => uploadFiles(fileInputEl.files));
@@ -817,6 +1319,7 @@ def render_page(title: str, version: str, theme: str, current_path: str) -> str:
     }});
 
     renderBreadcrumb();
+    loadInfo();
     loadList();
   </script>
 </body>
