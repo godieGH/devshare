@@ -25,6 +25,7 @@ class ShareLink:
     created_at: float
     expires_at: float | None
     allow_upload: bool = True
+    password_hash: str | None = None
 
 
 class AuthManager:
@@ -68,7 +69,7 @@ class AuthManager:
             self.sessions.pop(token, None)
 
     def create_share(self, path: str, allow_upload: bool = True) -> ShareLink:
-        token = secrets.token_urlsafe(16)
+        token = secrets.token_urlsafe(32)
         now = time.time()
         expires_at = None
         if self.share_expire_hours > 0:
@@ -79,9 +80,30 @@ class AuthManager:
             created_at=now,
             expires_at=expires_at,
             allow_upload=allow_upload,
+            password_hash=None,
         )
         self.shares[token] = link
         return link
+
+    def create_share_with_password(self, path: str, password: str | None, allow_upload: bool = True) -> ShareLink:
+        link = self.create_share(path, allow_upload=allow_upload)
+        if password:
+            link.password_hash = _hash_pin(password, self._salt)
+            self.shares[link.token] = link
+        return link
+
+    def verify_share_password(self, token: str | None, password: str | None) -> bool:
+        if not token:
+            return False
+        link = self.shares.get(token)
+        if not link:
+            return False
+        if link.password_hash is None:
+            return True
+        if not password:
+            return False
+        digest = _hash_pin(password.strip(), self._salt)
+        return secrets.compare_digest(digest, link.password_hash)
 
     def get_share(self, token: str | None) -> ShareLink | None:
         if not token:

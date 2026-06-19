@@ -7,6 +7,9 @@ name = "devshare"
 version = "0.1.0"
 description = "Cross-platform local file server and browser UI"
 requires-python = ">=3.10"
+dependencies = [
+	"qrcode>=7.3",
+]
 
 [project.scripts]
 devshare = "devshare.cli:main"

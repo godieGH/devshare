@@ -60,6 +60,8 @@ def file_kind(path: str, mime: str) -> str:
         return "dir"
     if mime.startswith("image/"):
         return "image"
+    if mime.startswith("audio/"):
+        return "audio"
     if mime.startswith("text/") or ext in TEXT_EXTS or mime in {
         "application/json",
         "application/xml",

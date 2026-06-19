@@ -2,6 +2,16 @@ from __future__ import annotations
 
 import io
 import json
+import base64
+try:
+    import qrcode
+    try:
+        from qrcode.image.svg import SvgImage
+    except Exception:
+        SvgImage = None
+except Exception:
+    qrcode = None
+    SvgImage = None
 import os
 import shutil
 import zipfile
@@ -247,6 +257,7 @@ class DevServeHandler(BaseHTTPRequestHandler):
             return
 
         name = os.path.basename(full.rstrip("/\\")) or share.path
+        requires_password = getattr(share, "password_hash", None) is not None
         html = render_share_page(
             title=self.title,
             theme=self.theme,
@@ -254,6 +265,7 @@ class DevServeHandler(BaseHTTPRequestHandler):
             name=name,
             is_file=is_file,
             allow_upload=share.allow_upload and not is_file,
+            requires_password=requires_password,
         )
 
         def write_html():
@@ -262,7 +274,9 @@ class DevServeHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(html.encode("utf-8"))))
-        self._set_cookie(SHARE_COOKIE, token, max_age=86400)
+        # Only set guest cookie automatically when the share has no password
+        if not requires_password:
+            self._set_cookie(SHARE_COOKIE, token, max_age=86400)
         self.end_headers()
         write_html()
 
@@ -363,6 +377,15 @@ class DevServeHandler(BaseHTTPRequestHandler):
                     "kind": "image",
                     "name": os.path.basename(full),
                     "url": f"/api/file?path={rel}",
+                })
+                return
+
+            if kind == "audio":
+                self._json({
+                    "kind": "audio",
+                    "name": os.path.basename(full),
+                    "url": f"/api/file?path={rel}",
+                    "mime": mime,
                 })
                 return
 
@@ -531,6 +554,21 @@ class DevServeHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path, qs = self._query()
 
+        if path == "/api/guest/auth":
+            body = self._read_json_body()
+            token = (body.get("token") or "").strip()
+            password = body.get("password")
+            manager = self.auth_manager
+            if manager and manager.verify_share_password(token, password):
+                self.send_response(200)
+                self._set_cookie(SHARE_COOKIE, token, max_age=86400)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.end_headers()
+                self.wfile.write(json.dumps({"ok": True}).encode("utf-8"))
+                return
+            self._json({"error": "Invalid token or password"}, 401)
+            return
+
         if path == "/api/login":
             body = self._read_json_body()
             pin = (body.get("pin") or "").strip()
@@ -612,16 +650,58 @@ class DevServeHandler(BaseHTTPRequestHandler):
             if os.path.isfile(full):
                 allow_upload = False
 
-            link = self.auth_manager.create_share(rel, allow_upload=allow_upload)
+            password = body.get("password")
+            if password:
+                link = self.auth_manager.create_share_with_password(rel, password=password, allow_upload=allow_upload)
+            else:
+                link = self.auth_manager.create_share(rel, allow_upload=allow_upload)
             host = self.headers.get("Host", f"localhost:{self.port}")
             url = f"http://{host}/s/{link.token}"
-            self._json({
+
+            # Theme-aware QR colors
+            req_theme = body.get("theme", self.theme or "dark")
+            if req_theme == "dark":
+                qr_fill, qr_back = "#ffffff", "transparent"
+                png_fill, png_back = "white", "black"
+            else:
+                qr_fill, qr_back = "#0f172a", "#ffffff"
+                png_fill, png_back = "black", "white"
+
+            qr_data = None
+            if qrcode is not None and SvgImage is not None:
+                try:
+                    img = qrcode.make(url, image_factory=SvgImage)
+                    buf = io.BytesIO()
+                    img.save(buf)
+                    svg = buf.getvalue().decode("utf-8")
+                    svg = svg.replace('fill="#000000"', f'fill="{qr_fill}"')
+                    svg = svg.replace('fill="#ffffff"', f'fill="{qr_back}"')
+                    svg = svg.replace('fill="black"', f'fill="{qr_fill}"')
+                    svg = svg.replace('fill="white"', f'fill="{qr_back}"')
+                    qr_data = "data:image/svg+xml;base64," + base64.b64encode(svg.encode("utf-8")).decode("ascii")
+                except Exception:
+                    qr_data = None
+            elif qrcode is not None:
+                try:
+                    qr = qrcode.QRCode()
+                    qr.add_data(url)
+                    qr.make(fit=True)
+                    img = qr.make_image(fill_color=png_fill, back_color=png_back)
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    qr_data = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+                except Exception:
+                    qr_data = None
+            payload = {
                 "ok": True,
                 "token": link.token,
                 "url": url,
                 "expires_at": link.expires_at,
                 "allow_upload": link.allow_upload,
-            })
+            }
+            if qr_data:
+                payload["qr"] = qr_data
+            self._json(payload)
             return
 
         if path == "/api/delete":
